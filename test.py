@@ -1,165 +1,193 @@
 import json
-import requests
+import random
 import time
-import urllib.parse
-from base64 import b64decode
-import datetime
-from Database.db import Account, db, Device
-from Database.user import User
-from Database.device import DeviceInfo
+from datetime import datetime, timedelta
+import logging
+import requests
+from Database.db import Account, Device, db, AccountStatus, LikeData
 # from urllib.parse import parse_qs
-# from constants import Constants
+# import json
+#
 # s = input()
+#
 # s = parse_qs(s)
+# s = s['signed_body'][0][65:]
+# s = json.loads(s)
 #
 # for key in s:
-#     print(key.upper() + ' = ' +  "'''" +  s[key][0] + "'''")
-
-
-# s = input()
-# s = urllib.parse.parse_qs(s)
-# s = s['signed_body'][0]
-# s = s[65:]
-# s = json.loads(s)
-# for key in s:
 #     print(key + " : " + str(s[key]))
+#
+import logging
+import threading, time, signal, os
 
-user_agents = [
-'Instagram 117.0.0.28.123 Android (28/9; 403dpi; 1080x2340; Xiaomi/xiaomi; Mi 9 Lite; pyxis; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/8; 577dpi; 1440x2560; samsung; SM-G930F; herolte; exynos8890; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 401dpi; 1080x2280; samsung; SM-N970U; davinci; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 403dpi; 1080x2340; Xiaomi/xiaomi; Mi 9; cepheus; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/9; 529dpi; 1440x2960; samsung; SM-G955F; cruiser; exynos8895; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 269dpi; 720x1520; Xiaomi/xiaomi; Redmi 7; onclite; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/9; 403dpi; 1080x2280; Xiaomi/xiaomi; Mi 8 Lite; platina; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/9; 529dpi; 1440x2960; samsung; SM-G955FD; cruiser; exynos8895; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 537dpi; 1440x3040; Google; Pixel 4XL; coral; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/8; 534dpi; 1440x2560; samsung; SM-G935F; hero2lte; exynos8890; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 438dpi; 1080x2280; samsung; SM-G970U;  beyond0; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/9; 409dpi; 1080x2340; Xiaomi/xiaomi; Redmi Note 7; lavender; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/9; 432dpi; 1080x2340; Xiaomi/xiaomi; Mi 9 SE; grus; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 498dpi; 1440x3040; samsung; SM-N975F; davinci; exynos9825; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 550dpi; 1440x3040; samsung; SM-G973F;  beyond1; exynos9820; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/9; 521dpi; 1440x2960; samsung; SM-N950U1; great; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/10; 529dpi; 1440x2960; samsung; SM-G960DS; star; exynos9810; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 388dpi; 2088x2250; Xiaomi/xiaomi; Mi Mix Alpha; papyrus; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 395dpi; 1080x2400; Xiaomi/xiaomi; Black Shark 3; tucana; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 550dpi; 1440x3040; samsung; SM-G973U;  beyond1; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 402dpi; 1080x2160; Google; Pixel 3a XL; bonito; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 560dpi; 1440x2723; samsung; SM-G973F;  beyond1; exynos9820; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 516dpi; 1440x2960; samsung; SM-N960F; crown; exynos9810; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/8; 577dpi; 1440x2560; samsung; SM-G930FD; herolte; exynos8890; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 401dpi; 1080x2280; samsung; SM-N970DS; davinci; exynos9825; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/9; 521dpi; 1440x2960; samsung; SM-N950FD; great; exynos8895; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/9; 529dpi; 1440x2960; samsung; SM-G955U; cruiser; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/9; 403dpi; 1080x2340; samsung; SM-A505U; a50dd; exynos9610; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 401dpi; 1080x2280; samsung; SM-N970F; davinci; exynos9825; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/10; 570dpi; 1440x2960; samsung; SM-G960F; star; exynos9810; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 438dpi; 1080x2280; samsung; SM-G970DS;  beyond0; exynos9820; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/10; 570dpi; 1440x2960; samsung; SM-G960DS; star; exynos9810; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/9; 398dpi; 1080x2340; Xiaomi/xiaomi; Mi Note 10 Pro; tucana; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 498dpi; 1440x3040; samsung; SM-N975DS; davinci; exynos9825; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 438dpi; 1080x2280; samsung; SM-G970F;  beyond0; exynos9820; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 498dpi; 1440x3040; samsung; SM-N975U1; davinci; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 401dpi; 1080x2280; samsung; SM-N970U1; davinci; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 522dpi; 1440x3040; samsung; SM-G975DS; beyond2; exynos9820; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/10; 570dpi; 1440x2960; samsung; SM-G960U; star; exynos9810; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 443dpi; 1080x2160; Google; Pixel 3; blueline; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/9; 403dpi; 1080x2340; Xiaomi/xiaomi; Redmi K20 Pro; raphael; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/9; 403dpi; 1080x2280; Xiaomi/xiaomi; Redmi Note 6 Pro; tulip; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/9; 570dpi; 1440x2960; samsung; SM-G950F; cruiser; exynos8895; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 403dpi; 1080x2340; Xiaomi/xiaomi; Redmi K20; davinci; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/9; 521dpi; 1440x2960; samsung; SM-N950F; great; exynos8895; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/9; 295dpi; 720x1440; Xiaomi/xiaomi; Redmi 7A; pine; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 550dpi; 1440x3040; samsung; SM-G973DS;  beyond1; exynos9820; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/9; 521dpi; 1440x2960; samsung; SM-N950U; great; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/9; 570dpi; 1440x2960; samsung; SM-G950FD; cruiser; exynos8895; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 522dpi; 1440x3040; samsung; SM-G975F; beyond2; exynos9820; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 516dpi; 1440x2960; samsung; SM-N960DS; crown; exynos9810; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 523dpi; 1440x2960; Google; Pixel 3 XL; crosshatch; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 405dpi; 1080x2400; samsung; SM-A515F; davinci; exynos9611; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 441dpi; 1080x2220; Google; Pixel 3; sargo; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 498dpi; 1440x3040; samsung; SM-N975U; davinci; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/10; 529dpi; 1440x2960; samsung; SM-G960U; star; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/10; 529dpi; 1440x2960; samsung; SM-G960F; star; exynos9810; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 444dpi; 1080x2280; Google; Pixel 4; flame; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 522dpi; 1440x3040; samsung; SM-G975U; beyond2; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 516dpi; 1440x2960; samsung; SM-N960U; crown; exynos9810; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (29/10; 409dpi; 1080x2340; Xiaomi/xiaomi; Redmi Note 7 Pro; violet; qcom; en_US; 180322800)',
-'Instagram 117.0.0.28.123 Android (28/9; 570dpi; 1440x2960; samsung; SM-G950U; cruiser; exynos8895; en_US; 180322800)',
+from datetime import timedelta, datetime
+
+from termcolor import colored
+
+try:
+    from create import Create
+except:
+    from .create import Create
+try:
+    from like_by_link import LikeByLink
+except ImportError:
+    from .like_by_link import LikeByLink
+
+WAIT_TIME_SECONDS = 60
+
+
+class ProgramKilled(Exception):
+    pass
+
+
+usernames = []
+try:
+    accounts = Account.query.filter(Account.last_login <= (datetime.now() - timedelta(days=0)).timestamp())
+except Exception as e:
+    print(e)
+    raise Exception
+
+for account in accounts:
+    statuses = AccountStatus.query.filter_by(account_username=account.username).first()
+    if statuses != None:
+        continue
+    if account.is_from_appium:
+        json.loads(account.cookie)
+        usernames.append(account.username)
+
+
+print(len(usernames))
+proxies = [
+# {'http': 'http://51.15.13.145:3111', 'https': 'https://51.15.13.145:3111'},
+# {'http': 'http://51.15.13.145:3112', 'https': 'https://51.15.13.145:3112'},
+# {'http': 'http://51.15.13.145:3113', 'https': 'https://51.15.13.145:3113'},
+# {'http': 'http://51.15.13.145:3114', 'https': 'https://51.15.13.145:3114'},
+#     {'http': 'http://51.15.13.145:3115', 'https': 'https://51.15.13.145:3115'},
+# {'http': 'http://51.15.13.145:3116', 'https': 'https://51.15.13.145:3116'},
+# {'http': 'http://51.15.13.145:3117', 'https': 'https://51.15.13.145:3117'},
+    {'http': 'http://51.15.13.145:3118', 'https': 'https://51.15.13.145:3118'},
+    {'http': 'http://51.15.13.145:3119', 'https': 'https://51.15.13.145:3119'},
+    {'http': 'http://51.15.13.145:3120', 'https': 'https://51.15.13.145:3120'},
+    {'http': 'http://51.15.13.145:3121', 'https': 'https://51.15.13.145:3121'},
+    {'http': 'http://51.15.13.145:3122', 'https': 'https://51.15.13.145:3122'},
+    {'http': 'http://51.15.13.145:3123', 'https': 'https://51.15.13.145:3123'},
 ]
 
-def get_user_agent_130():
-    user_agent = user_agents.pop()
-    user_agents.insert(0, user_agent)
-    user_agent = user_agent.replace('117.0.0.28.123', '130.0.0.31.121')
-    user_agent = user_agent.replace('180322800', '200396023')
-    return user_agent
+links = [
+    'https://www.instagram.com/p/B9iifwDpwp4/?igshid=1hsomnd7g60r',
+    'https://www.instagram.com/p/B9pm__OBcnV/?igshid=nmig8913qq99',
+    'https://www.instagram.com/p/B-CWhZaKpvm/?igshid=q7sn4ajl0knv',
+    'https://www.instagram.com/p/B9u4q_ypYPh/?igshid=1q7puo4vx5gd3',
+    'https://www.instagram.com/p/B0PKQ0Il0Eo/?igshid=1om5b6k96q7ld',
+    'https://www.instagram.com/p/B9-GGjLF3To/?igshid=1iieh3jm1g5cm',
+    'https://www.instagram.com/p/B-BRX75H6Y5/?igshid=bjtm1axavkrr',
+    'https://www.instagram.com/p/B9TDojBAQKa/?igshid=17xg918sl3lkk',
+    'https://www.instagram.com/p/B-AdIavggGU/?igshid=s11ldwrplg9s',
+    'https://www.instagram.com/p/B7xOgFjnuiO/?igshid=1t2adg3ly8qp5',
+    'https://www.instagram.com/p/B9xG7jHJHYH/?igshid=9uyhkochygvx',
+    'https://www.instagram.com/p/B-FJkFjlQJe/?igshid=vgxv4h14slni',
+    'https://www.instagram.com/p/B-FJkFjlQJe/?igshid=g38mrv9hnkop',
+    'https://www.instagram.com/p/B-C71yhHBOv/?igshid=12ddzcdrhvhb7',
+    'https://www.instagram.com/p/B-GferRHGN2/?igshid=fn7scjf5szct',
+    'https://www.instagram.com/p/B-GferRHGN2/?igshid=fn7scjf5szct',
+    'https://www.instagram.com/p/B9ri2X9oUpr/?igshid=1n0umhar05gv8',
+    'https://www.instagram.com/p/B7zM-R2oT0u/?igshid=18undg57papyp',
+    'https://www.instagram.com/p/B-FS5mTnaRq/?igshid=rj33rl1wpi9y',
+    'https://www.instagram.com/p/B9RycToFeh4/?igshid=92aqtsmcr40e',
+    'https://www.instagram.com/p/B9vZND-JjIJ/?igshid=rflorfi1ux70',
+    'https://www.instagram.com/p/B-DYXC_nRTN/?igshid=wc36d47kt03k',
+    'https://www.instagram.com/p/B5ooTsVlr4-/?igshid=1vbeb0qqqmiir',
+    'https://www.instagram.com/p/B9SjUhHBH3m/?igshid=1ngp4cel7dggh',
+    'https://www.instagram.com/p/B9_4fMGAD4S/?igshid=1lcqq8fejn690',
+    'https://www.instagram.com/p/B9-RIhMH42a/?igshid=wtbv7r7c1vri',
+    'https://www.instagram.com/p/B-CUoiHHkxi/?igshid=ga0wez9eo1qm',
+    'https://www.instagram.com/p/B9wbJ2YHXx_/?igshid=ckdn2pw1hfra',
+    'https://www.instagram.com/p/B9tvo02gMmz/?igshid=1qstd2cpur23d',
+    'https://www.instagram.com/p/B9XYf0inSSY/?igshid=1pkg86d8zjuzo',
+    'https://www.instagram.com/p/B-AJJQ9KNEh/?igshid=15idnafja57vx',
+    'https://www.instagram.com/p/B9AlsCEnJI3/?igshid=1grfrtldbc891',
+    'https://www.instagram.com/p/B9tdlDqq11P/?igshid=1p6o6m0p861n7',
+    'https://www.instagram.com/p/B9fQv73BF6t/?igshid=18dbg6obo9wgl',
+    'https://www.instagram.com/p/B78ROvyjwsx/?igshid=mhgkuryfheef',
+    'https://www.instagram.com/p/B99wLq8IRQm/?igshid=1h9uttcvmamo9',
+    'https://www.instagram.com/p/B96jiEzBhBh/?igshid=a89v3cqrmutn',
+    'https://www.instagram.com/p/B95NNkmDZSO/?igshid=5xkbum6u7vti',
+    'https://www.instagram.com/p/B8XDpOFA1Xn/?igshid=8f2v5ekobzx2',
+    'https://www.instagram.com/p/B9Nv2Tgls0y/?igshid=16wix18dhc8r0',
+    'https://www.instagram.com/p/B9NrduAp1wo/?igshid=15oy88w9aens8',
+    'https://www.instagram.com/p/B9cKVFIgbHB/?igshid=le0zp7i5maya',
+    'https://www.instagram.com/p/B8ERQDuHPcJ/?igshid=1918gsceltrql',
 
-def get_user_agent_117():
-    user_agent = user_agents.pop()
-    user_agents.insert(0, user_agent)
-    return user_agent
-
-
-def message(username):
-    try:
-        user = User(username=username)
-        device = user.device
-        return 'ok'
-    except Exception as e:
-        return e
-accounts = Account.query.filter_by(username='vedo_xooor')
-print(type(accounts))
-
-
-accounts = Account.query.all()
-users = []
-for account in accounts:
-    user = account.__dict__
-    username = user.get('username')
-    msg = message(username)
-    print(msg)
-    if msg != 'ok':
-        users.append(user)
-
-print(len(users))
-for account in users:
-#     time.sleep(2)
-    if account.get('is_from_appium'):
-        user_agent  = get_user_agent_130()
-    else:
-        user_agent = get_user_agent_117()
-
-    print(type(account))
-
-
-for account in users:
-    if account.get('is_from_appium'):
-        user_agent  = get_user_agent_130()
-    else:
-        user_agent = get_user_agent_117()
-
-    device = DeviceInfo().get_device_info()
-    username = account.get('username')
-    print(username)
-    new_device = Device(
-        account_username=username,
-        user_agent=user_agent,
-        uuid=device.get('uuid'),
-        android_device_id=device.get('android_device_id'),
-        waterfall_id=device.get('waterfall_id'),
-        advertising_id=device.get('advertising_id'),
-        jazoest=device.get('jazoest'),
-        phone_id=device.get('phone_id'),
-        x_pigeon=device.get('x_pigeon'),
-        attribution_id=device.get('attribution_id'),
-    )
-    db.session.add(new_device)
-    print('DONE')
-    time.sleep(1)
-db.session.commit()
+]
+logging.basicConfig(filename='logfile.log', level=logging.DEBUG, format='%(asctime)s %(levelname)s %(message)s')
+logger = logging.getLogger('Instagram')
 
 
+def like():
+    def task(username, link):
+        proxy = proxies.pop(0)
+        proxies.append(proxy)
+        try:
+            lbl = LikeByLink(username=username, link=link, proxy=proxy)
+            print(colored(lbl.country.upper(), 'yellow' ))
+            if lbl.country != 'US':
+                print(colored('WARNING : COUNTRY MUST BE US !', 'RED'))
+                raise Exception
+        except json.decoder.JSONDecodeError as e:
+            print(e)
+            return
+        except Exception as e:
+            logger.exception(e)
+            print(e)
+            # print(colored('Plaese, try another proxy server','red',attrs=['bold','blink']))
+            task(username, link)
+        else:
+            try:
+                lbl.like_by_link()
+            except Exception as e:
+                logger.exception(e)
+                print(e)
+                # print(colored('Something went wrong in accountapi.py module', 'red', attrs=['bold', 'blink']))
 
+    # Log the time when create task has started
+
+    # Get email and password from line
+    link = links.pop(0)
+    links.append(link)
+
+    # Get first proxy and append it back
+
+    username = usernames.pop(0)
+    usernames.append(username)
+    task(username, link)
+
+
+def signal_handler(signum, frame):
+    raise ProgramKilled
+
+
+class Job(threading.Thread):
+    def __init__(self, interval, execute, *args, **kwargs):
+        threading.Thread.__init__(self)
+        self.daemon = False
+        self.stopped = threading.Event()
+        self.interval = interval
+        self.execute = execute
+        self.args = args
+        self.kwargs = kwargs
+
+    def stop(self):
+        self.stopped.set()
+        self.join()
+
+    def run(self):
+        while not self.stopped.wait(self.interval.total_seconds()):
+            self.execute(*self.args, **self.kwargs)
+
+
+if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    job = Job(interval=timedelta(seconds=WAIT_TIME_SECONDS), execute=like)
+    job.start()
 
