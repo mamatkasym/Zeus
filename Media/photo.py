@@ -2,15 +2,16 @@
 import imghdr
 import random
 import struct
-import sys
 import time
 import os
-from pathlib import Path
+import PIL
 
 import requests
 import json
 
+# PERFORM BOTH RELATIVE AND ABSOLUTE IMPORTS ( YOU CAN CAN CHANGE IF YOU HAVE BETTER SOLUTION )
 from termcolor import colored
+
 try:
     from constants import Constants
 except ImportError:
@@ -39,25 +40,24 @@ try:
     from Database.update import *
 except ImportError:
     from ..Database.update import *
+try:
+    from session import Session
+except ImportError:
+    from ..session import Session
 
 
 class Photo:
     def __init__(self, username=None, proxy=None):
-        self.user = User(username)
+
+        self.user = User(username=username)
         self.account = self.user.account
         self.device = self.user.device
         self.request = Request()
-        self.session = requests.session()
-        self.session.proxies = proxy
-        try:
-            self.session.cookies = requests.utils.cookiejar_from_dict(json.loads(self.account.get('cookie')))
-        except Exception as e:
-            print(e)
+        self.session = Session(username=username, proxy=proxy)
 
-        self.login = Login(username=username, session=self.session, proxy=proxy)
+        self.login = Login(username=username, session=self.session , proxy=proxy)
+        self.geo = Geo(proxy=proxy)
 
-        self.longitude = Geo.get_longitude(proxy)
-        self.latitude = Geo.get_latitude(proxy)
         self.username = username
         self.upload_id = None
 
@@ -66,77 +66,117 @@ class Photo:
         self.account = self.user.account
         self.device = self.user.device
 
-    def get_csrftoken(self):
-        try:
-            return self.session.cookies.get_dict()['csrftoken']
-        except KeyError:
-            return self.account.get('csrftoken')
-
-    def set_headers(self,
-                    x_device=False,
-                    prefetch_request=False,
-                    is_post=False,
-                    retry_context=False,
-                    ):
-
-        self.session.headers = {}
-
-        if x_device:
-            self.session.headers['X-DEVICE-ID'] = self.device.get('uuid')
-        self.session.headers['X-IG-App-Locale'] = 'en_US'
-        self.session.headers['X-IG-Device-Locale'] = 'en_US'
-        self.session.headers['X-Pigeon-Session-Id'] = self.device.get('x_pigeon')
-        self.session.headers['X-Pigeon-Rawclienttime'] = str(round(time.time(), 3))
-        self.session.headers['X-IG-Connection-Speed'] = '-1kbps'
-        self.session.headers['X-IG-Bandwidth-Speed-KBPS'] = '-1.000'
-        self.session.headers['X-IG-Bandwidth-TotalBytes-B'] = '0'
-        self.session.headers['X-IG-Bandwidth-TotalTime-MS'] = '0'
-        if prefetch_request:
-            self.session.headers['X-IG-Prefetch-Request'] = 'foreground'
-        self.session.headers['X-IG-Extended-CDN-Thumbnail-Sizes'] = '160,180,360'
-        self.session.headers['X-Bloks-Version-Id'] = '0e9b6d9c0fb2a2df4862cd7f46e3f719c55e9f90c20db0e5d95791b66f43b367'
-        self.session.headers['X-IG-WWW-Claim'] = 'hmac.AR3skglIBS45Xd_AkJdCKJH2Cmv6zg8qFmIf91klyi_PjoJe'
-        self.session.headers['X-Bloks-Is-Layout-RTL'] = 'false'
-        self.session.headers['X-IG-Device-ID'] = self.device.get('uuid')
-        self.session.headers['X-IG-Android-ID'] = self.device.get('android_device_id')
-        if retry_context:
-            self.session.headers['retry_context'] = json.dumps({"num_reupload":0,"num_step_auto_retry":0,"num_step_manual_retry":0} , separators=(',', ':'))
-        self.session.headers['X-IG-Connection-Type'] = 'WIFI'
-        self.session.headers['X-IG-Capabilities'] = '3brTvwE='
-        self.session.headers['X-IG-App-ID'] = '567067343352427'
-        self.session.headers['User-Agent'] = self.device.get('user_agent')
-        self.session.headers['Accept-Language'] = 'en-US'
-        if is_post:
-            self.session.headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8'
-        self.session.headers['Accept-Encoding'] = 'gzip, deflate'
-        self.session.headers['Host'] = 'i.instagram.com'
-        self.session.headers['X-FB-HTTP-Engine'] = 'Liger'
-        self.session.headers['Connection'] = 'close'
+    # ========== UTILITY FUNCTIONS ==========================
 
     def get_device_details(self):
         device_details = self.device.get('user_agent')
         device_details = device_details.split('; ')
         device = {
-            'manufacturer':device_details[3],
-            'model':device_details[4],
-            'android_version': int(device_details[0][-4:-2]),
-            'android_release':device_details[0][-1]
+            'manufacturer': device_details[3],
+            'model': device_details[4],
+            'android_version': int(device_details[0].split('/')[0][-2:]),
+            'android_release': device_details[0].split('/')[1]
         }
         return device
-# =============================================================
-    def feed_user_story(self):
+
+    def get_path_to_photo(self):
+        try:
+            path_to_photo_list = os.listdir(os.getcwd() + '/Data/Photos/')
+
+            def get_path_to_photo():
+                path_to_photo = path_to_photo_list.pop()
+                if (not path_to_photo.endswith('jpg')) and (not path_to_photo.endswith('jpeg')):
+                    return get_path_to_photo()
+                return path_to_photo
+
+            path_to_photo = os.getcwd() + '/Data/Photos/' + get_path_to_photo()
+        except Exception as e:
+            raise Exception
+        print(path_to_photo)
+        return path_to_photo
+
+    def check_supportibilty(self, path_to_photo):
+        try:
+            self.get_image_size(path_to_photo)
+            return path_to_photo
+        except Exception:
+            os.remove(path_to_photo)
+            print(colored('PLEASE CHOOSE ANOTHER PHOTO', 'red'))
+            new_path_to_photo = self.get_path_to_photo()
+            return self.check_supportibilty(new_path_to_photo)
+
+    # ================= PRE UPLOAD REQUESTS ============================================
+    def get_profile_page(self):
+        # OPEN THE APP OR LOGIN AGAIN IN ORDER TO CHANGE PROFILE PHOTO
+        # before getting prfile page
+        # ( We use 'loginapi' module to do this )
+        self.login.login(False)
+
+        time.sleep(random.randint(4, 10))  # TODO
+
+        self.reload_user(self.username)
+
+        # Go to profile page
+        # self.ig_query() # TODO
+        self.feed_user_story(1)
+        self.feed_user_story(2)
+        self.profile_su_badge()
+        self.users_info(self.account.get('user_id'))
+        self.qp_batch_fetch()
+        self.highlights()
+        self.profile_archive_badge()
+        self.get_invite_suggestions()
+
+    def ig_query(self): # TODO
+        data = dict()
+        data['doc_id'] = '2615360401861024' # TODO
+        data['locale'] = 'en_US'
+        data['vc_policy'] = 'default'
+        data['signed_body'] = Signature.generate_signature('')
+        data['ig_sig_key_version'] = '4'
+        data['strip_nulls'] = 'true'
+        data['strip_defaults'] = 'true'
+        data['query_params'] = ''
+
+        print(data['signed_body'])
+
+        self.session.headers = dict()
+        self.session.headers['X-IG-Connection-Type'] = 'WIFI'
+        self.session.headers['X-IG-Capabilities'] = '3brTvwE='
+        self.session.headers['X-IG-App-ID'] = '567067343352427'
+        self.session.headers['User-Agent'] = self.device.get('user_agent')
+        self.session.headers['Accept-Language'] = 'en-US'
+        self.session.headers['Cookie'] = self.session.get_cookie_string()
+        self.session.headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8'
+        self.session.headers['Accept-Encoding'] = 'gzip, deflate'
+        self.session.headers['Host'] = 'i.instagram.com'
+        self.session.headers['X-FB-HTTP-Engine'] = 'Liger'
+        self.session.headers['Connection'] = 'close'
+
+        self.request.send_request(
+            endpoint=Constants.API_URL1 + 'wwwgraphql/ig/query/',
+            post=data,
+            with_signature=False,
+            session=self.session)
+
+    def feed_user_story(self, version):
         param = dict()
-        param['supported_capabilities_new'] = Constants.NEW_SUPPORTED_CAPABILITIES117
-        self.set_headers()
+        if version == 1:
+            param['supported_capabilities_new'] = Constants.NEW_SUPPORTED_CAPABILITIES117 # TODO
+        else:
+            param['exclude_comment'] = 'true'
+            param['only_fetch_first_carousel_media'] = 'false'
+
+        self.session.set_headers()
         self.request.send_request(
             endpoint=Constants.API_URL1 + 'feed/user/{}/story/'.format(self.account.get('user_id')),
             params=param,
             session=self.session)
 
     def profile_su_badge(self):
-        self.set_headers()
+        self.session.set_headers()
         data = dict()
-        data['_csrftoken'] = self.get_csrftoken()
+        data['_csrftoken'] = self.session.get_csrftoken()
         data['_uuid'] = self.device.get('uuid')
 
         self.request.send_request(endpoint=Constants.API_URL1 + 'discover/profile_su_badge/',
@@ -145,24 +185,24 @@ class Photo:
                                   session=self.session)
 
     def users_info(self, userid=None):
-        self.set_headers()
+        self.session.set_headers()
         return self.request.send_request(
             endpoint=Constants.API_URL1 + 'users/{}/info/?from_module=self_profile'.format(userid),
             session=self.session
-            )
+        )
 
-    def qp_batch_fetch(self, surfaces_to_triggers, surfaces_to_qieries):
+    def qp_batch_fetch(self):
         body = dict()
-        body["surfaces_to_triggers"] = surfaces_to_triggers
-        body["surfaces_to_queries"] = surfaces_to_qieries
+        body["surfaces_to_triggers"] = Constants.SURFACES_TO_TRIGGERS_SELF_PROFILE
+        body["surfaces_to_queries"] = Constants.SURFACES_TO_QUERIES_SELF_PROFILE
         body["vc_policy"] = "default"
-        body["_csrftoken"] = self.get_csrftoken()
+        body["_csrftoken"] = self.session.get_csrftoken()
         body["_uid"] = self.account.get('user_id')
         body["_uuid"] = self.device.get('uuid')
         body["scale"] = Constants.BATCH_SCALE
         body["version"] = Constants.BATCH_VERSION
 
-        self.set_headers(is_post=True)
+        self.session.set_headers(is_post=True, auth=True)
 
         self.request.send_request(endpoint=Constants.API_URL1 + 'qp/batch_fetch/',
                                   post=body,
@@ -177,50 +217,20 @@ class Photo:
         body['is_charging'] = '0'
         body['will_sound_on'] = '0'
 
-        self.session.headers = dict()
-        self.session.headers['X-Ads-Opt-Out'] = '0'
-        self.session.headers['X-Attribution-ID'] = self.device.get('attribution_id')
-        self.session.headers['X-Google-AD-ID'] = self.device.get('advertising_id')
-        self.session.headers['X-DEVICE-ID'] = self.device.get('uuid')
-        self.session.headers['X-FB'] = '1'
-        self.session.headers['X-CM-Bandwidth-KBPS'] = ''  # TODO
-        self.session.headers['X-CM-Latency'] = ''  # TODO
-        self.session.headers['X-IG-App-Locale'] = 'en_US'
-        self.session.headers['X-IG-Device-Locale'] = 'en_US'
-        self.session.headers['X-Pigeon-Session-Id'] = self.device.get('x_pigeon')
-        self.session.headers['X-Pigeon-Rawclienttime'] = str(round(time.time(), 3))
-        self.session.headers['X-IG-Connection-Speed'] = '-1kbps'
-        self.session.headers['X-IG-Bandwidth-Speed-KBPS'] = '-1.000'
-        self.session.headers['X-IG-Bandwidth-TotalBytes-B'] = '0'
-        self.session.headers['X-IG-Bandwidth-TotalTime-MS'] = '0'
-        self.session.headers['X-IG-Extended-CDN-Thumbnail-Sizes'] = '160,180,360'
-        self.session.headers['X-Bloks-Version-Id'] = '0e9b6d9c0fb2a2df4862cd7f46e3f719c55e9f90c20db0e5d95791b66f43b367'
-        self.session.headers['X-IG-WWW-Claim'] = 'hmac.AR3skglIBS45Xd_AkJdCKJH2Cmv6zg8qFmIf91klyi_PjoJe'
-        self.session.headers['X-Bloks-Is-Layout-RTL'] = 'false'
-        self.session.headers['X-IG-Device-ID'] = self.device.get('uuid')
-        self.session.headers['X-IG-Android-ID'] = self.device.get('android_device_id')
-        self.session.headers['X-IG-Connection-Type'] = 'WIFI'
-        self.session.headers['X-IG-Capabilities'] = '3brTvwE='
-        self.session.headers['X-IG-App-ID'] = '567067343352427'
-        self.session.headers['User-Agent'] = self.device.get('user_agent')
-        self.session.headers['Accept-Language'] = 'en-US'
-        self.session.headers['Accept-Encoding'] = 'gzip, deflate'
-        self.session.headers['Host'] = 'i.instagram.com'
-        self.session.headers['X-FB-HTTP-Engine'] = 'Liger'
-        self.session.headers['Connection'] = 'close'
+        self.session.set_headers(prefix=True)
         self.request.send_request(
             endpoint=Constants.API_URL1 + 'highlights/{}/highlights_tray/'.format(self.account.get('user_id')),
             params=body,
             session=self.session
-            )
+        )
 
     def profile_archive_badge(self):
         body = dict()
-        body['timezone_offset'] = self.login.timezone_offset
-        body['_csrftoken'] = self.get_csrftoken()
+        body['timezone_offset'] = self.geo.timezone_offset
+        body['_csrftoken'] = self.session.get_csrftoken()
         body['_uuid'] = self.device.get('uuid')
 
-        self.set_headers()
+        self.session.set_headers()
         self.request.send_request(endpoint=Constants.API_URL1 + 'archive/reel/profile_archive_badge/',
                                   post=body,
                                   with_signature=False,
@@ -230,10 +240,10 @@ class Photo:
     def get_invite_suggestions(self):
         body = dict()
         body['count_only'] = '1'
-        body['_csrftoken'] = self.get_csrftoken()
+        body['_csrftoken'] = self.session.get_csrftoken()
         body['_uuid'] = self.device.get('uuid')
 
-        self.set_headers(is_post=True)
+        self.session.set_headers(is_post=True)
 
         return self.request.send_request(endpoint=Constants.API_URL1 + "fb/get_invite_suggestions/",
                                          post=body,
@@ -243,16 +253,16 @@ class Photo:
 
     def location_search(self):
         param = dict()
-        param['latitude'] = self.latitude
+        param['latitude'] = self.geo.latitude
         param['rankToken'] = Signature.generate_UUID(True)  # TODO
-        param['longitude'] = self.longitude
-        self.set_headers()
+        param['longitude'] = self.geo.longitude
+        self.session.set_headers(auth=True)
         return self.request.send_request(endpoint=Constants.API_URL1 + "location_search/",
                                          params=param,
                                          session=self.session
                                          )
 
-    def get_upload_igphoto(self, upload_id, some_number, waterfall_id):
+    def get_upload_photo(self, upload_id, some_number, waterfall_id):
 
         rupload_params = {
             "upload_id": upload_id,
@@ -260,20 +270,23 @@ class Photo:
             "media_type": "1",
             # "xsharing_user_ids": "[]",
             "image_compression": json.dumps(
-                {"lib_name": "moz", "lib_version": "3.1.m", "quality": "81"}
+                {"lib_name": "moz", "lib_version": "3.1.m", "quality": "81"}, separators=(',', ':')
             ),
         }
         upload_name = "{upload_id}_0_{rand}".format(
             upload_id=upload_id, rand=some_number
         )
 
-        self.session.headers = {}
+        self.session.headers = dict()
         self.session.headers['X_FB_PHOTO_WATERFALL_ID'] = waterfall_id
-        self.session.headers['X-Instagram-Rupload-Params'] = json.dumps(rupload_params)
+        self.session.headers['X-Instagram-Rupload-Params'] = json.dumps(rupload_params, separators=(',', ':'))
         self.session.headers['X-IG-Connection-Type'] = 'WIFI'
         self.session.headers['X-IG-Capabilities'] = '3brTvwE='
         self.session.headers['X-IG-App-ID'] = '567067343352427'
         self.session.headers['User-Agent'] = self.device.get('user_agent')
+        self.session.headers['Cookie'] = self.session.get_cookie_string()
+        self.session.headers['Authorization'] = 'Bearer IGT:2:' + self.session.get_authorization_bearer()
+        self.session.headers['X-MID'] = self.session.get_mid()
         self.session.headers['Accept-Language'] = 'en-US'
         self.session.headers['Accept-Encoding'] = 'gzip, deflate'
         self.session.headers['Host'] = 'i.instagram.com'
@@ -284,10 +297,13 @@ class Photo:
                                          session=self.session
                                          )
 
-    def post_upload_igphoto(self, path_to_photo, upload_id, some_number, waterfall_id, force_resize=False, post=False):
+    def upload_photo(self, path_to_photo, upload_id, some_number, waterfall_id, force_resize=False, post=False):
 
         if not path_to_photo:
             raise print('Provide path to photo file')
+
+        path_to_photo =  self.check_supportibilty(path_to_photo)
+
         if not self.compatible_aspect_ratio(self.get_image_size(path_to_photo)):
             print("Photo does not have a compatible photo aspect ratio.")
             if force_resize:
@@ -307,7 +323,8 @@ class Photo:
                 "retry_context": '{"num_step_auto_retry":0,"num_reupload":0,"num_step_manual_retry":0}',
                 "original_photo_pdq_hash": "1d81dac9c27f37267d9a629ca901be43dee4d3aa619a6f3498c39ccb2e344334:100",
                 "image_compression": json.dumps(
-                    {"lib_name":"moz","lib_version":"3.1.m","quality":"80","ssim":0.9903625845909119}, separators=(',', ':')
+                    {"lib_name": "moz", "lib_version": "3.1.m", "quality": "80", "ssim": 0.9903625845909119},
+                    separators=(',', ':')
                 ),
                 "xsharing_user_ids": "[]",
             }
@@ -319,7 +336,6 @@ class Photo:
                     {"lib_name": "moz", "lib_version": "3.1.m", "quality": "81"}, separators=(',', ':')
                 ),
             }
-
 
         self.session.headers = {}
         self.session.headers['X_FB_PHOTO_WATERFALL_ID'] = waterfall_id
@@ -333,6 +349,9 @@ class Photo:
         self.session.headers['X-IG-App-ID'] = '567067343352427'
         self.session.headers['User-Agent'] = self.device.get('user_agent')
         self.session.headers['Accept-Language'] = 'en-US'
+        self.session.headers['Cookie'] = self.session.get_cookie_string()
+        self.session.headers['Authorization'] = 'Bearer IGT:2:' + self.session.get_authorization_bearer()
+        self.session.headers['X-MID'] = self.session.get_mid()
         self.session.headers['Content-Type'] = 'application/octet-stream'
         self.session.headers['Accept-Encoding'] = 'gzip, deflate'
         self.session.headers['Host'] = 'i.instagram.com'
@@ -346,54 +365,56 @@ class Photo:
                                          timeout=30,
                                          )
 
-
     # ============== UPLOAD PROFILE PHOTO =============
 
-    def upload_profile_photo(self, path_to_photo):
+    def set_profile_photo(self, path_to_photo):
 
         # OPEN THE APP OR LOGIN AGAIN IN ORDER TO CHANGE PROFILE PHOTO ( We use 'loginapi' module to do this )
         self.login.login(False)
 
-        time.sleep(random.randint(4,10))  # TODO
+        time.sleep(random.randint(4, 10))  # TODO
 
         self.reload_user(self.username)
 
-        self.feed_user_story()
+        self.feed_user_story(1)
+        self.feed_user_story(2)
         self.profile_su_badge()
         self.users_info(self.account.get('user_id'))
-        self.qp_batch_fetch(Constants.SURFACES_TO_TRIGGERS, Constants.SURFACES_TO_QUERIES)
+        self.qp_batch_fetch()
         self.highlights()
         self.profile_archive_badge()
         self.get_invite_suggestions()
 
-        time.sleep(random.randint(5,15))
-        self.location_search()
+        time.sleep(random.randint(5, 15))
+        self.location_search() # TODO
 
         upload_id = str(int(time.time() * 1000))
         some_number = str(random.randint(-2 ** 10, 2 ** 10))
         waterfall_id = Signature.generate_UUID(True)
 
-
-        time.sleep(random.randint(10,15))
+        time.sleep(random.randint(10, 15))
         try:
-            self.get_upload_igphoto(upload_id, some_number, waterfall_id)
-            raise Exception('MISSING OR INCOMPATIBLE PHOTO')
-        except:
-            print('PHOTO ERROR')
+            if not self.get_upload_photo(upload_id, some_number, waterfall_id):
+                raise Exception
+        except Exception as e:
+            print(e)
+            print('MISSING OR INCOMPATIBLE PHOTO')
 
         try:
-            self.post_upload_igphoto(path_to_photo, upload_id, some_number, waterfall_id, force_resize=True)
-            raise Exception('MISSING OR INCOMPATIBLE PHOTO')
-        except:
-            print('PHOTO ERROR')
+            if not self.upload_photo(path_to_photo, upload_id, some_number, waterfall_id, force_resize=True):
+                raise Exception
+        except Exception as e:
+            print(e)
+            print('MISSING OR INCOMPATIBLE PHOTO')
+            raise
 
         data = dict()
-        data['_csrftoken'] = self.get_csrftoken()
+        data['_csrftoken'] = self.session.get_csrftoken()
         data['_uuid'] = self.device.get('uuid')
         data['use_fbuploader'] = 'true'
         data['upload_id'] = upload_id  # TODO
 
-        self.set_headers(is_post=True)
+        self.session.set_headers(is_post=True)
 
         is_photo_uploaded = self.request.send_request(endpoint=Constants.API_URL1 + 'accounts/change_profile_picture/',
                                                       post=data,
@@ -406,66 +427,93 @@ class Photo:
             print(colored('*** CHANGING PROFILE PICTURE ATTEMPT IS FAILED ***', 'red', attrs=['bold']))
 
         try:
-            update_cookie(self.account.get('username'), self.request.cookie )
+            update_cookie(self.account.get('username'), self.request.cookie)
         except:
             pass
 
+    # =========   UPLOAD POST PHOTO   ==================================================================================
+
     def upload_post_photo(self, path_to_photo):
-        self.login.login(False)
+        # Open the app and get timeline page before post.
+        # If timeline does not respond, update the account status
+        if not self.login.open_app():
+            return
 
-        time.sleep(random.randint(3,10))
+        time.sleep(random.randint(3, 10))
 
-        self.reload_user(self.username)
+        self.reload_user(self.username) # TODO
 
-        time.sleep(random.randint(10,20))
+        time.sleep(random.randint(10, 20))
         self.location_search()
-        self.qp_batch_fetch(Constants.SURFACES_TO_TRIGGERS117, Constants.SURFACES_TO_QUERIES1)
+        self.qp_batch_fetch()
 
-        time.sleep(random.randint(5,10))
+        time.sleep(random.randint(5, 10))
         upload_id = str(int(time.time() * 1000))
         some_number = str(random.randint(-2 ** 10, 2 ** 10))
         waterfall_id = Signature.generate_UUID(True)
 
         def upload():
-            response = self.post_upload_igphoto(path_to_photo, upload_id, some_number, waterfall_id, force_resize=True, post=True)
+            response = self.upload_photo(path_to_photo, upload_id, some_number, waterfall_id, force_resize=True,
+                                                post=True)
             if not response:
                 return upload()
             return True
 
         upload()
 
-
-        self.set_headers(retry_context=True)
+        self.session.set_headers(retry_context=True ,is_post=True, auth=True)
         width, height = self.get_image_size(path_to_photo)
 
         data = dict()
-        data['timezone_offset'] = self.login.timezone_offset
-        data['_csrftoken'] = self.get_csrftoken()
+        data['timezone_offset'] = self.geo.timezone_offset
+        data['_csrftoken'] = self.session.get_csrftoken()
         data['media_folder'] = 'Download'
         data['source_type'] = '4'
         data['_uid'] = self.account.get('user_id')
         data['device_id'] = self.device.get('android_device_id')
         data['_uuid'] = self.device.get('uuid')
         data['creation_logger_session_id'] = Signature.generate_UUID(True)
+        # data['location'] = json.dumps({}, separators=(",",":")) # TODO
+        # data['suggested_venue_position'] = '-1' # TODO
         data['caption'] = ''
         data['upload_id'] = upload_id
         data['device'] = self.get_device_details()
         data['edits'] = {
             "crop_original_size": [width * 1.0, height * 1.0],
-            "crop_center": [0.0, 0.0],
+            "crop_center": [0.0, -0.0], # TODO
             "crop_zoom": 1.0,
         }
         data['extra'] = {"source_width": width, "source_height": height}
+        # data['is_suggested_venue'] = 'False' # TODO
 
-        is_photo_posted =  self.request.send_request(endpoint=Constants.API_URL1 + 'media/configure/',
+        try:
+            is_photo_posted = self.request.send_request(endpoint=Constants.API_URL1 + 'media/configure/',
+                                                        post=data,
+                                                        session=self.session
+                                                        )
+
+            if is_photo_posted:
+                print(colored('*** PHOTO POSTED SUCCESSFULLY ***', 'green', attrs=['bold']))
+            else:
+                print(colored('*** POSTING PHOTO ATTEMPT IS FAILED ***', 'red', attrs=['bold']))
+        except:
+            print(colored('SOMETHING WENT WRONG WHEN UPLOADING PROFILE PHOTO', 'red', attrs=['bold']))
+        update_cookie(self.account.get('username'), self.request.cookie)
+
+    def set_biography(self, text=''):
+        self.get_profile_page()
+        data = dict()
+        data['_csrftoken'] = self.session.get_csrftoken()
+        data['_uid'] = self.account.get('user_id')
+        data['device_id'] = self.device.get('android_device_id')
+        data['_uuid'] = self.device.get('uuid')
+        data['raw_text'] = text
+
+        self.session.set_headers(is_post=True)
+        return self.request.send_request(endpoint=Constants.API_URL1 + "accounts/set_biography/",
                                          post=data,
                                          session=self.session
                                          )
-        if is_photo_posted:
-            print(colored('*** PHOTO POSTED SUCCESSFULLY ***', 'green', attrs=['bold']))
-        else:
-            print(colored('*** POSTING PHOTO ATTEMPT IS FAILED ***', 'red', attrs=['bold']))
-
 
     # =============== PHOTO DETAILS ======================================
 
@@ -591,14 +639,14 @@ class Photo:
                 print("Resizing image")
                 img = img.resize((1080, 1080), Image.ANTIALIAS)
         (w, h) = img.size
-        new_fname = "{fname}.CONVERTED.jpg".format(fname=fname)
+        new_fname = "{fname}.jpg".format(fname=fname)
         print("Saving new image w:{w} h:{h} to `{f}`".format(w=w, h=h, f=new_fname))
         new = Image.new("RGB", img.size, (255, 255, 255))
         new.paste(img, (0, 0, w, h), img)
         new.save(new_fname, quality=95)
         return new_fname
 
-
+#
 if __name__ == "__main__":
     # username = sys.argv[1]
     # try:
@@ -612,47 +660,54 @@ if __name__ == "__main__":
     # except Exception as e:
     #     raise Exception
     # print(path_to_photo)
-    # os.remove(path_to_photo)
     # try:
-    #     with open( os.getcwd() + '/Instagram/CAERUS/Database/proxies.txt' , 'r' ) as fout:
+    #     with open( os.path.abspath('proxies.txt') , 'r' ) as fout:
     #         lines = fout.read().splitlines(True)
     #         print(lines)
     #         proxy = lines.pop(0)
     #         lines.insert(-1, proxy)
-    #     with open(os.getcwd() + '/Instagram/CAERUS/Database/proxies.txt' , 'w' ) as fin:
+    #     with open(os.path.abspath('proxies.txt') , 'w' ) as fin:
     #         fin.writelines(lines)
     # except Exception as e:
     #     print(e)
     #     print(colored('CANNOT RETRIEVE PROXY', 'red'))
     #
-    # try:
-    #     a = Photo(username=username, proxy=proxy)
-    # except Exception as e:
-    #     print(colored('CANNOT INITIALIZE "PHOTO" CLASS', 'red'))
-    # else:
-    #     try:
-    #         a.upload_post_photo(path_to_photo=path_to_photo)
-    #         os.remove(path_to_photo)
-    #     except Exception as e:
-    #         print(colored('WRONG PATH TO PHOTO', 'red', attrs=['bold']))
-    p = Photo('vedo_xooor', proxy={'http': 'http://192.168.0.100:1111','https': 'https://192.168.0.100:1111'})
-    p.upload_post_photo(os.getcwd() + '/Photos/download.jpeg')
-    # time.sleep(random.randint(5, 10))
-    # upload_id = str(int(time.time() * 1000))
-    # some_number = str(random.randint(-2 ** 10, 2 ** 10))
-    # waterfall_id = Signature.generate_UUID(True)
-    # p.post_upload_igphoto(os.getcwd() + '/Photos/download.jpeg', upload_id, some_number, waterfall_id, force_resize=True, post=True)
+    # print(proxy)
+    # proxy = literal_eval(proxy)
 
+    # proxy = {'http': 'http://192.168.0.100:2222', 'https': 'https://192.168.0.100:2222'}
+    # proxy = None
+    proxy = {'http': 'http://51.15.13.145:3118', 'https': 'https://51.15.13.145:3118'}
 
+    username = 'alinathompson1615'
+    path_to_photo = '/Users/azat/Desktop/Instagram/Zeus/Media/Photos/resized_299350_f219f20a.jpg'
+    pd = open(path_to_photo, "rb").read()
+    print(pd)
+    try:
+        a = Photo(username=username, proxy=proxy)
+        print(a.geo.country)
+        print(a.geo.longitude)
+        print(a.geo.latitude)
+        # CHECK IF TIMEZONE COINCIDES OR NOT
+        a.geo.check_timezone()
+        if a.geo.country != 'US':
+            print('Country must be US')
+        else:
+            try:
+                a.upload_post_photo(path_to_photo=path_to_photo)
+            except Exception as e:
+                print(e)
+                print(colored('PATH TO PHOTO MAY NOT BE AVAILABLE', 'red', attrs=['bold']))
+            else:
+                try:
+                    os.remove(path_to_photo)
+                    print(colored('PHOTO HAS BEEN REMOVED', 'green', attrs=['bold']))
 
+                except Exception as e:
+                    print(e)
+                    print(colored('PHOTO CANNOT BE REMOVED', 'red', attrs=['bold']))
 
-
-
-
-
-
-
-
-
-
+    except Exception as e:
+        print(e)
+        print(colored('CANNOT INITIALIZE "PHOTO" CLASS', 'red'))
 

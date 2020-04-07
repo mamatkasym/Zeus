@@ -1,3 +1,4 @@
+timezonefinder
 urllib3
 termcolor
 requests
@@ -25,3 +26,4 @@ flask_migrate
 pycryptodomex
 string
 secrets
+PIL

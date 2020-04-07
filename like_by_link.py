@@ -11,6 +11,7 @@ import urllib.parse
 import time
 import datetime
 import random
+
 try:
     from Database.db import Account, LikeData, db, AccountStatus
 except ImportError:
@@ -27,123 +28,24 @@ try:
     from geography import Geo
 except ImportError:
     from .geography import Geo
+try:
+    from session import Session
+except ImportError:
+    from .session import Session
 
 
 class LikeByLink:
 
-    # TODO compare these two version variables
-    # 117.0.0.28.123 has X-Bloks-Version-Id = 0a3ae4c88248863609c67e278f34af44673cff300bc76add965a9fb036bd3ca3
-    # 123.0.0.21.114 has X-Bloks-Version-Id": "7ab39aa203b17c94cc6787d6cd9052d221683361875eee1e1bfe30b8e9debd74
-    # 117.0.0.28.123 has X-IG-WWW-Claim = hmac.AR1GHOOu2MKXw8ZJrOzMeEskLzHlUuy9BIBSoQuqPiA53aDv
-    # 123.0.0.21.114 has X-Bloks-Version-Id": 0
-
     def __init__(self, username=None, link=None, proxy=None):
         self.request = Request()
-        self.session = requests.session()
-        try:
-            self.ig = User(username=username)
-        except Exception as e:
-            print(e)
+        self.session = Session(username=username, proxy=proxy)
+        self.ig = User(username=username)
         self.account = self.ig.account
         self.device = self.ig.device
-        try:
-            cookies = requests.utils.cookiejar_from_dict(self.get_cookie())
-        except:
-            print('error is here')
-        try:
-            self.session.cookies = cookies
-        except:
-            print('cookie error')
-        self.session.proxies = proxy
+
         self.media_id = None
         self.link = link
-        self.bearer = self.set_authorization_bearer()
-        try:
-            self.geo = Geo(proxy=proxy)
-        except:
-            print('geo error')
-        self.country = self.geo.country
-
-
-
-    def get_mid(self):
-        try:
-            return self.session.cookies.get_dict()['mid']
-        except KeyError:
-            return None
-
-    def get_sessionid(self):
-        try:
-            return self.session.cookies.get_dict()['sessionid']
-        except KeyError:
-            return None
-
-    def get_ds_user_id(self):
-        try:
-            return self.session.cookies.get_dict()['ds_user_id']
-        except KeyError:
-            return None
-
-    def set_authorization_bearer(self):
-        bearer = dict()
-        bearer['ds_user_id'] = self.get_ds_user_id()
-        bearer['sessionid'] = self.get_sessionid()
-        bearer = json.dumps(bearer, separators=(',', ':'))
-        return b64encode(bearer.encode()).decode()
-
-    def get_cookie(self):
-        try:
-            return json.loads(self.account.get('cookie'))
-        except:
-            str_cookie = self.account.get('cookie')
-            cookies = str_cookie.split("; ")
-            dict_cookie = dict()
-            for c in cookies:
-                k, v = c.split("=")
-                dict_cookie[k] = v
-
-            return dict_cookie
-
-    def set_headers(self,
-                    x_device=False,
-                    prefetch_request=False,
-                    is_post=False,
-                    ):
-        self.session.headers =  {}
-
-        if x_device:
-            self.session.headers['X-DEVICE-ID'] = self.device.get('uuid')
-        self.session.headers['X-IG-App-Locale'] = 'en_US'
-        self.session.headers['X-IG-Device-Locale'] = 'en_US'
-        self.session.headers['X-IG-Mapped-Locale'] = 'en_US'
-        self.session.headers['X-Pigeon-Session-Id'] = self.device.get('x_pigeon')
-        self.session.headers['X-Pigeon-Rawclienttime'] = str(round(time.time(), 3))
-        self.session.headers['X-IG-Connection-Speed'] = '-1kbps'
-        self.session.headers['X-IG-Bandwidth-Speed-KBPS'] = str(round(random.uniform(2000,5000), 3))
-        self.session.headers['X-IG-Bandwidth-TotalBytes-B'] = str(random.randint(500000, 900000))
-        self.session.headers['X-IG-Bandwidth-TotalTime-MS'] = str(random.randint(200, 500))
-        self.session.headers['X-IG-App-Startup-Country'] = 'US'
-        if prefetch_request:
-            self.session.headers['X-IG-Prefetch-Request'] = 'foreground'
-        self.session.headers['X-Bloks-Version-Id'] = Constants.X_BLOKS_VERSION_ID
-        self.session.headers['X-IG-WWW-Claim'] = Constants.X_IG_WWW_CLAIM
-        self.session.headers['X-Bloks-Is-Layout-RTL'] = 'false'
-        self.session.headers['X-Bloks-Enable-RenderCore'] = 'false'
-        self.session.headers['X-IG-Device-ID'] = self.device.get('uuid')
-        self.session.headers['X-IG-Android-ID'] = self.device.get('android_device_id')
-        self.session.headers['X-IG-Connection-Type'] = 'WIFI'
-        self.session.headers['X-IG-Capabilities'] = Constants.X_IG_CAPABILITIES
-        self.session.headers['X-IG-App-ID'] = Constants.X_IG_APP_ID
-        self.session.headers['User-Agent'] = self.device.get('user_agent')
-        self.session.headers['Accept-Language'] = 'en-US'
-        self.session.headers['Authorization'] = 'Bearer IGT:2:' + self.bearer
-        self.session.headers['X-MID'] = self.get_mid()
-        if is_post:
-            self.session.headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8'
-        self.session.headers['Accept-Encoding'] = 'gzip, deflate'
-        self.session.headers['Host'] = 'i.instagram.com'
-        self.session.headers['X-FB-HTTP-Engine'] = 'Liger'
-        self.session.headers['Connection'] = 'close'
+        self.geo = Geo(proxy=proxy)
 
     def save_like_data(self):
         new_like_data = LikeData(account_username=self.account.get('username'),
@@ -168,38 +70,28 @@ class LikeByLink:
                 return True
         return False
 
-
     def oembed(self):
-        self.set_headers()
+        self.session.set_headers(auth=True)
 
         try:
             response = self.request.send_request(
-                        endpoint=Constants.API_URL1 + 'oembed/?url={}'.format(urllib.parse.quote_plus(self.link)),
-                        account=self.account,
-                        device=self.device,
-                        session=self.session
-                    )
+                endpoint=Constants.API_URL1 + 'oembed/?url={}'.format(urllib.parse.quote_plus(self.link)),
+                session=self.session
+            )
             return response
-        except:
+        except Exception as e:
+            print(e)
             return False
 
-
-
     def media_info(self):
-        self.set_headers()
-        def get_response():
-            response = self.request.send_request(endpoint=Constants.API_URL1 + 'media/{}/info/'.format(self.media_id),
-                                                 account=self.account,
-                                                 device=self.device,
-                                                  session=self.session
-                                                 )
-            if response:
-                return
-            get_response()
-        get_response()
+        self.session.set_headers(auth=True)
+
+        return self.request.send_request(endpoint=Constants.API_URL1 + 'media/{}/info/'.format(self.media_id),
+                                         session=self.session
+                                         )
 
     def media_like(self):
-        self.set_headers(is_post=True)
+        self.session.set_headers(is_post=True, auth=True)
         data = {
             "inventory_source": "media_or_ad",
             "media_id": self.media_id,
@@ -213,30 +105,29 @@ class LikeByLink:
             "feed_position": "0"
         }
         double_tap = random.randint(0, 1)
-        return     self.request.send_request(
-                                            endpoint=Constants.API_URL1 + 'media/{}/like/'.format(self.media_id),
-                                            post=data,
-                                            extra_sig="d={}".format(double_tap),
-                                            account=self.account,
-                                            device=self.device,
-                                            session=self.session
-                                        )
-    #
-    # def like_flow(self):
-    #     self.oembed()
-    #     self.media_info()
-    #     self.media_like()
+        return self.request.send_request(
+            endpoint=Constants.API_URL1 + 'media/{}/like/'.format(self.media_id),
+            post=data,
+            extra_sig="d={}".format(double_tap),
+            session=self.session
+        )
+
     def like_by_link(self):
         if not self.oembed():
             print(colored('THIS ACCOUNT IS PROBABLY BLOCKED OR BAD LINK', 'red', attrs=['bold']))
             try:
                 message = self.request.last_json.get('message')
-            except:
-                message = 'unresposive'
+            except KeyError:
+                message = 'unresponsive'
             self.save_account_status(status=message)
         else:
             self.media_id = self.request.last_json['media_id']
-            self.media_info()
+            if not self.media_info():
+                try:
+                    message = self.request.last_json.get('message')
+                except KeyError:
+                    message = 'unresponsive'
+                self.save_account_status(status=message)
 
             if self.check_if_media_is_liked():
                 print(colored('THIS MEDIA IS ALREADY LIKED BY THIS ACCOUNT', 'yellow', attrs=['bold']))
@@ -254,7 +145,7 @@ class LikeByLink:
                     update_cookie(self.account.get('username'), self.request.cookie)
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
     users = [
         'kimbrellnedobitova',
         # 'vrienabitkova1999',
@@ -297,6 +188,7 @@ if __name__=="__main__":
         print(username)
         print(link)
 
+
         def task():
             print(colored('Task has started', 'yellow'))
             proxy = proxies.pop()
@@ -308,11 +200,13 @@ if __name__=="__main__":
                 print(colored('SOMETHING WENT WRONG', 'red'))
                 time.sleep(15)
                 task()
-            if fbl.country != 'US':
-                print('COUNTRY IS NOT US')
-                task()
             else:
-                fbl.like_by_link()
-                time.sleep(15)
-        task()
+                if fbl.geo.country != 'US':
+                    print('COUNTRY IS NOT US')
+                    task()
+                else:
+                    fbl.like_by_link()
+                    time.sleep(15)
 
+
+        task()

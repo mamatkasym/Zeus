@@ -3,18 +3,22 @@
     <words>
       <w>adid</w>
       <w>arlink</w>
+      <w>badging</w>
       <w>bloks</w>
       <w>cooldowns</w>
       <w>creatives</w>
       <w>csrftoken</w>
+      <w>fbuploader</w>
       <w>geotools</w>
       <w>gmail</w>
+      <w>igtv</w>
       <w>instagram</w>
       <w>jazoest</w>
       <w>liger</w>
       <w>msisdn</w>
       <w>oembed</w>
       <w>pathlib</w>
+      <w>postgresql</w>
       <w>prefill</w>
       <w>pycryptodomex</w>
       <w>pytz</w>
@@ -23,6 +27,7 @@
       <w>sqlalchemy</w>
       <w>subno</w>
       <w>termcolor</w>
+      <w>usernameinfo</w>
       <w>usernames</w>
       <w>versioning</w>
     </words>
